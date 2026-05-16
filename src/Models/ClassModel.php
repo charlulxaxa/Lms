@@ -65,10 +65,12 @@ class ClassModel
             c.class_desc,
             c.class_code,
             c.created_by,
+            c.status,
             cu.role
         FROM Classes c
         JOIN Class_User cu ON c.class_id = cu.class_id
-        WHERE cu.user_id = ?";
+        WHERE cu.user_id = ?
+        AND c.status = 'Active'";
 
         $stmt = $this->conn->prepare($sql);
         $stmt->execute([$user_id]);
@@ -289,41 +291,40 @@ class ClassModel
         }
     }
 
-public function createAssignment($class_id, $postedBy, $title, $description, $due_date, $max_score = 100, $allow_late = false)
-{
-    try {
-        $post_id = $this->createPost(
-            $class_id,
-            $postedBy,
-            'assignment',
-            $title,
-            $description,
-            $due_date
-        );
+    public function createAssignment($class_id, $postedBy, $title, $description, $due_date, $max_score = 100, $allow_late = false)
+    {
+        try {
+            $post_id = $this->createPost(
+                $class_id,
+                $postedBy,
+                'assignment',
+                $title,
+                $description,
+                $due_date
+            );
 
-        if (!$post_id) {
-            return false;
-        }
+            if (!$post_id) {
+                return false;
+            }
 
-        $sql = "INSERT INTO Activity
+            $sql = "INSERT INTO Activity
                 (post_id, max_score, allow_late)
                 VALUES (?, ?, ?)";
 
-        $stmt = $this->conn->prepare($sql);
+            $stmt = $this->conn->prepare($sql);
 
-        $stmt->execute([
-            $post_id,
-            $max_score,
-            $allow_late
-        ]);
+            $stmt->execute([
+                $post_id,
+                $max_score,
+                $allow_late
+            ]);
 
-        return $post_id;
-
-    } catch (\PDOException $e) {
-        error_log("Create assignment error: " . $e->getMessage());
-        return false;
+            return $post_id;
+        } catch (\PDOException $e) {
+            error_log("Create assignment error: " . $e->getMessage());
+            return false;
+        }
     }
-}
     public function createMaterial($class_id, $postedBy, $title, $description)
     {
         try {
@@ -376,11 +377,11 @@ public function createAssignment($class_id, $postedBy, $title, $description, $du
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
-public function getClassPosts($class_id)
-{
-    try {
+    public function getClassPosts($class_id)
+    {
+        try {
 
-        $sql = "
+            $sql = "
         SELECT
             p.post_id,
             p.type,
@@ -412,16 +413,15 @@ public function getClassPosts($class_id)
         ORDER BY p.created_at DESC
         ";
 
-        $stmt = $this->conn->prepare($sql);
-        $stmt->execute([$class_id]);
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$class_id]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    } catch (\PDOException $e) {
-        error_log($e->getMessage());
-        return [];
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\PDOException $e) {
+            error_log($e->getMessage());
+            return [];
+        }
     }
-}
 
     public function deletePost($post_id)
     {
@@ -478,84 +478,82 @@ public function getClassPosts($class_id)
         ]);
     }
 
-public function getPostOwner($post_id)
-{
-    $stmt = $this->conn->prepare("
+    public function getPostOwner($post_id)
+    {
+        $stmt = $this->conn->prepare("
         SELECT post_id, postedBy, type
         FROM Post
         WHERE post_id = ?
     ");
 
-    $stmt->execute([$post_id]);
+        $stmt->execute([$post_id]);
 
-    return $stmt->fetch(\PDO::FETCH_ASSOC);
-}
+        return $stmt->fetch(\PDO::FETCH_ASSOC);
+    }
 
-public function updatePost($post_id, $title, $description, $due_date = null, $max_score = null)
-{
-    try {
-        $this->conn->beginTransaction();
+    public function updatePost($post_id, $title, $description, $due_date = null, $max_score = null)
+    {
+        try {
+            $this->conn->beginTransaction();
 
-        $post = $this->getPostOwner($post_id);
+            $post = $this->getPostOwner($post_id);
 
-        if (!$post) {
-            $this->conn->rollBack();
-            return false;
-        }
+            if (!$post) {
+                $this->conn->rollBack();
+                return false;
+            }
 
-        if ($post['type'] === 'assignment') {
+            if ($post['type'] === 'assignment') {
 
-            $sql = "UPDATE Post
+                $sql = "UPDATE Post
                     SET title = ?,
                         description = ?,
                         due_date = ?
                     WHERE post_id = ?";
 
-            $stmt = $this->conn->prepare($sql);
+                $stmt = $this->conn->prepare($sql);
 
-            $stmt->execute([
-                $title,
-                $description,
-                $due_date,
-                $post_id
-            ]);
+                $stmt->execute([
+                    $title,
+                    $description,
+                    $due_date,
+                    $post_id
+                ]);
 
-            $sql = "UPDATE Activity
+                $sql = "UPDATE Activity
                     SET max_score = ?
                     WHERE post_id = ?";
 
-            $stmt = $this->conn->prepare($sql);
+                $stmt = $this->conn->prepare($sql);
 
-            $stmt->execute([
-                $max_score,
-                $post_id
-            ]);
+                $stmt->execute([
+                    $max_score,
+                    $post_id
+                ]);
+            } else {
 
-        } else {
-
-            $sql = "UPDATE Post
+                $sql = "UPDATE Post
                     SET title = ?,
                         description = ?
                     WHERE post_id = ?";
 
-            $stmt = $this->conn->prepare($sql);
+                $stmt = $this->conn->prepare($sql);
 
-            $stmt->execute([
-                $title,
-                $description,
-                $post_id
-            ]);
+                $stmt->execute([
+                    $title,
+                    $description,
+                    $post_id
+                ]);
+            }
+
+            $this->conn->commit();
+            return true;
+        } catch (\PDOException $e) {
+            $this->conn->rollBack();
+            error_log("Update post error: " . $e->getMessage());
+            return false;
         }
-
-        $this->conn->commit();
-        return true;
-
-    } catch (\PDOException $e) {
-        $this->conn->rollBack();
-        error_log("Update post error: " . $e->getMessage());
-        return false;
     }
-}
     public function getAssignmentByPostId($post_id)
     {
         try {
@@ -844,4 +842,126 @@ public function updatePost($post_id, $title, $description, $due_date = null, $ma
             return [];
         }
     }
+
+public function getClassForTeacher($class_id, $user_id)
+{
+    try {
+        $sql = "SELECT
+                    c.class_id,
+                    c.class_name,
+                    c.class_desc,
+                    c.class_code,
+                    c.created_by,
+                    c.status,
+                    cu.role
+                FROM Classes c
+                JOIN Class_User cu ON cu.class_id = c.class_id
+                WHERE c.class_id = ?
+                AND cu.user_id = ?
+                AND cu.role = 'teacher'
+                AND c.status = 'Active'
+                LIMIT 1";
+
+        $stmt = $this->conn->prepare($sql);
+
+        $stmt->execute([
+            $class_id,
+            $user_id
+        ]);
+
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+
+    } catch (\PDOException $e) {
+        error_log("Get teacher class error: " . $e->getMessage());
+        return false;
+    }
+}
+
+    public function updateClass($class_id, $user_id, $data)
+    {
+        try {
+            $class = $this->getClassForTeacher($class_id, $user_id);
+
+            if (!$class) {
+                return [
+                    "success" => false,
+                    "message" => "Unauthorized."
+                ];
+            }
+
+            $checkSql = "SELECT class_id
+                     FROM Classes
+                     WHERE class_code = ?
+                     AND class_id != ?
+                     LIMIT 1";
+
+            $checkStmt = $this->conn->prepare($checkSql);
+
+            $checkStmt->execute([
+                $data['class_code'],
+                $class_id
+            ]);
+
+            if ($checkStmt->fetch(PDO::FETCH_ASSOC)) {
+                return [
+                    "success" => false,
+                    "message" => "Class code is already taken."
+                ];
+            }
+
+            $sql = "UPDATE Classes
+                SET class_name = ?,
+                    class_desc = ?,
+                    class_code = ?
+                WHERE class_id = ?";
+
+            $stmt = $this->conn->prepare($sql);
+
+            $stmt->execute([
+                $data['class_name'],
+                $data['class_desc'],
+                $data['class_code'],
+                $class_id
+            ]);
+
+            return [
+                "success" => true,
+                "message" => "Class updated successfully."
+            ];
+        } catch (\PDOException $e) {
+            error_log("Update class error: " . $e->getMessage());
+
+            return [
+                "success" => false,
+                "message" => "Something went wrong while updating the class."
+            ];
+        }
+    }
+
+public function deleteClass($class_id, $user_id)
+{
+    try {
+        $class = $this->getClassForTeacher($class_id, $user_id);
+
+        if (!$class) {
+            return false;
+        }
+
+        $sql = "UPDATE Classes
+                SET status = 'Inactive'
+                WHERE class_id = ?
+                AND created_by = ?";
+
+        $stmt = $this->conn->prepare($sql);
+
+        return $stmt->execute([
+            $class_id,
+            $user_id
+        ]);
+
+    } catch (\PDOException $e) {
+        error_log("Archive class error: " . $e->getMessage());
+        return false;
+    }
+}
 }

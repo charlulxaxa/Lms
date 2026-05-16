@@ -286,7 +286,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_assignment']))
                         <ul class="dropdown-menu dropdown-menu-end w-100">
                             <li><a class="dropdown-item" href="account_settings.php">Profile</a></li>
                             <li><a class="dropdown-item" href="#">Preferences</a></li>
-                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
                             <li><a class="dropdown-item" href="logout.php">Sign out</a></li>
                         </ul>
                     </div>
@@ -308,7 +310,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_assignment']))
                     <ul class="dropdown-menu dropdown-menu-end">
                         <li><a class="dropdown-item" href="account_settings.php">Profile</a></li>
                         <li><a class="dropdown-item" href="#">Preferences</a></li>
-                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
                         <li><a class="dropdown-item" href="logout.php">Sign out</a></li>
                     </ul>
                 </div>
@@ -393,11 +397,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_assignment']))
                     <div class="card p-3 mb-3 teacher-panel">
                         <h5>⚙️ Teacher Panel</h5>
 
-                        <a href="edit_class.php?class_id=<?php echo $class_id; ?>" class="btn btn-light btn-sm mb-2">
+                        <a href="edit_class.php?class_id=<?= htmlspecialchars($class_id) ?>" class="btn btn-light btn-sm mb-2">
                             ✏️ Edit Class
                         </a>
 
-                        <a href="delete_class.php?class_id=<?php echo $class_id; ?>" class="btn btn-light btn-sm">
+                        <a href="delete_class.php?class_id=<?= htmlspecialchars($class_id) ?>" class="btn btn-light btn-sm">
                             🗑 Delete Class
                         </a>
                     </div>
@@ -889,7 +893,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_assignment']))
         const streamSection = document.getElementById('streamSection');
         const studentSection = document.getElementById('studentSection');
 
-        streamBtn.addEventListener('click', function () {
+        streamBtn.addEventListener('click', function() {
             streamSection.style.display = 'block';
             studentSection.style.display = 'none';
 
@@ -897,7 +901,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_assignment']))
             studentBtn.classList.remove('active');
         });
 
-        studentBtn.addEventListener('click', function () {
+        studentBtn.addEventListener('click', function() {
             streamSection.style.display = 'none';
             studentSection.style.display = 'block';
 
