@@ -289,40 +289,41 @@ class ClassModel
         }
     }
 
-    public function createAssignment($class_id, $postedBy, $title, $description, $due_date, $max_score = 100, $allow_late = false)
-    {
-        try {
-            $post_id = $this->createPost(
-                $class_id,
-                $postedBy,
-                'assignment',
-                $title,
-                $description,
-                $due_date
-            );
+public function createAssignment($class_id, $postedBy, $title, $description, $due_date, $max_score = 100, $allow_late = false)
+{
+    try {
+        $post_id = $this->createPost(
+            $class_id,
+            $postedBy,
+            'assignment',
+            $title,
+            $description,
+            $due_date
+        );
 
-            if (!$post_id) {
-                return false;
-            }
-
-            $sql = "INSERT INTO Activity
-                    (post_id, max_score, allow_late)
-                    VALUES (?, ?, ?)";
-
-            $stmt = $this->conn->prepare($sql);
-
-            $stmt->execute([
-                $post_id,
-                $max_score,
-                $allow_late
-            ]);
-
-            return true;
-        } catch (\PDOException $e) {
-            error_log("Create assignment error: " . $e->getMessage());
+        if (!$post_id) {
             return false;
         }
+
+        $sql = "INSERT INTO Activity
+                (post_id, max_score, allow_late)
+                VALUES (?, ?, ?)";
+
+        $stmt = $this->conn->prepare($sql);
+
+        $stmt->execute([
+            $post_id,
+            $max_score,
+            $allow_late
+        ]);
+
+        return $post_id;
+
+    } catch (\PDOException $e) {
+        error_log("Create assignment error: " . $e->getMessage());
+        return false;
     }
+}
     public function createMaterial($class_id, $postedBy, $title, $description)
     {
         try {
@@ -375,48 +376,52 @@ class ClassModel
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
-    public function getClassPosts($class_id)
-    {
-        try {
+public function getClassPosts($class_id)
+{
+    try {
 
-            $sql = "
-            SELECT
-                p.post_id,
-                p.type,
-                p.title,
-                p.description,
-                p.due_date,
-                p.created_at,
-                p.postedBy,
-                u.first_name,
-                u.last_name,
+        $sql = "
+        SELECT
+            p.post_id,
+            p.type,
+            p.title,
+            p.description,
+            p.due_date,
+            p.created_at,
+            p.postedBy,
+            u.first_name,
+            u.last_name,
+            act.max_score,
 
-                GROUP_CONCAT(a.file_path SEPARATOR '||') AS file_paths,
-                GROUP_CONCAT(a.file_name SEPARATOR '||') AS file_names,
-                GROUP_CONCAT(a.attachment_type SEPARATOR '||') AS attachment_types
+            GROUP_CONCAT(a.file_path SEPARATOR '||') AS file_paths,
+            GROUP_CONCAT(a.file_name SEPARATOR '||') AS file_names,
+            GROUP_CONCAT(a.attachment_type SEPARATOR '||') AS attachment_types
 
-            FROM Post p
+        FROM Post p
 
-            JOIN Users u ON p.postedBy = u.user_id
+        JOIN Users u ON p.postedBy = u.user_id
 
-            LEFT JOIN Attachment a ON p.post_id = a.post_id
+        LEFT JOIN Activity act ON act.post_id = p.post_id
 
-            WHERE p.class_id = ?
+        LEFT JOIN Attachment a ON p.post_id = a.post_id
 
-            GROUP BY p.post_id
+        WHERE p.class_id = ?
 
-            ORDER BY p.created_at DESC
+        GROUP BY p.post_id
+
+        ORDER BY p.created_at DESC
         ";
 
-            $stmt = $this->conn->prepare($sql);
-            $stmt->execute([$class_id]);
+        $stmt = $this->conn->prepare($sql);
+        $stmt->execute([$class_id]);
 
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (\PDOException $e) {
-            error_log($e->getMessage());
-            return [];
-        }
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    } catch (\PDOException $e) {
+        error_log($e->getMessage());
+        return [];
     }
+}
 
     public function deletePost($post_id)
     {
@@ -473,18 +478,84 @@ class ClassModel
         ]);
     }
 
-    public function getPostOwner($post_id)
-    {
-        $stmt = $this->conn->prepare("
-        SELECT post_id, postedBy
+public function getPostOwner($post_id)
+{
+    $stmt = $this->conn->prepare("
+        SELECT post_id, postedBy, type
         FROM Post
         WHERE post_id = ?
     ");
 
-        $stmt->execute([$post_id]);
+    $stmt->execute([$post_id]);
 
-        return $stmt->fetch(\PDO::FETCH_ASSOC);
+    return $stmt->fetch(\PDO::FETCH_ASSOC);
+}
+
+public function updatePost($post_id, $title, $description, $due_date = null, $max_score = null)
+{
+    try {
+        $this->conn->beginTransaction();
+
+        $post = $this->getPostOwner($post_id);
+
+        if (!$post) {
+            $this->conn->rollBack();
+            return false;
+        }
+
+        if ($post['type'] === 'assignment') {
+
+            $sql = "UPDATE Post
+                    SET title = ?,
+                        description = ?,
+                        due_date = ?
+                    WHERE post_id = ?";
+
+            $stmt = $this->conn->prepare($sql);
+
+            $stmt->execute([
+                $title,
+                $description,
+                $due_date,
+                $post_id
+            ]);
+
+            $sql = "UPDATE Activity
+                    SET max_score = ?
+                    WHERE post_id = ?";
+
+            $stmt = $this->conn->prepare($sql);
+
+            $stmt->execute([
+                $max_score,
+                $post_id
+            ]);
+
+        } else {
+
+            $sql = "UPDATE Post
+                    SET title = ?,
+                        description = ?
+                    WHERE post_id = ?";
+
+            $stmt = $this->conn->prepare($sql);
+
+            $stmt->execute([
+                $title,
+                $description,
+                $post_id
+            ]);
+        }
+
+        $this->conn->commit();
+        return true;
+
+    } catch (\PDOException $e) {
+        $this->conn->rollBack();
+        error_log("Update post error: " . $e->getMessage());
+        return false;
     }
+}
     public function getAssignmentByPostId($post_id)
     {
         try {
