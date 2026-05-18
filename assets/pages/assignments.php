@@ -122,6 +122,7 @@ $teacherAttachments = $classModel->getPostAttachments($post_id);
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css">
 </head>
 <body>
+    <div class="lms-decor-scene" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
     <nav class="navbar navbar-expand-lg navbar-light lms-topbar fixed-top px-3">
         <div class="container-fluid gap-2 align-items-center lms-topbar-inner">
             <button class="navbar-toggler d-lg-none lms-sidebar-toggler flex-shrink-0" type="button" aria-label="Open side navigation">

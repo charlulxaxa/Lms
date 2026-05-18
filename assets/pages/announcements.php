@@ -154,6 +154,7 @@ function viewerLink($filePath)
 </head>
 
 <body>
+    <div class="lms-decor-scene" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
 
 <nav class="navbar navbar-expand-lg navbar-light lms-topbar fixed-top px-3">
     <div class="container-fluid gap-2 align-items-center lms-topbar-inner">

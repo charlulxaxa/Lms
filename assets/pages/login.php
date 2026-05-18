@@ -96,6 +96,7 @@ if (isset($_SESSION['success'])) {
     body{display: flex; flex-direction: column; align-items: center; justify-content: center; }
 </style>
 <body>
+    <div class="lms-decor-scene" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
 
     <?php if ($message): ?>
         <div class="message <?php echo htmlspecialchars($messageType); ?>">

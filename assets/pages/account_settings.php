@@ -27,6 +27,7 @@ $user = $_SESSION['user_data'];
 </head>
 
 <body>
+    <div class="lms-decor-scene" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
 
     <!-- NAVBAR -->
     <nav class="navbar navbar-expand-lg navbar-light lms-topbar fixed-top px-3">
