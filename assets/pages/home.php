@@ -192,8 +192,8 @@ if (isset($_SESSION['success'])) {
             <div id="classStatus" class="classStatus"></div>
         </div>
         <div class="input-box">
-          <label for='class_desc'>Class Description</label>
-          <input type="text" id='class_desc' name="class_desc" placeholder="Optional short description for this class">
+          <label for='class_desc'>Class Decription:</label>
+          <input type="text" id='class_desc' name="class_desc">
         </div>
 
 
@@ -211,7 +211,7 @@ if (isset($_SESSION['success'])) {
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h1 class="modal-title fs-5" id="joinlLabel">Join Class</h1>
+            <h1 class="modal-title fs-5" id="joinlLabel">Modal title</h1>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body">
