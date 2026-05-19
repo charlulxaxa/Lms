@@ -277,7 +277,7 @@ function formatDateTime(mixed $date): string
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
     <script src="../js/mobile-menu.js"></script>
-
+    <script src='../js/animate.js'></script>
 </body>
 
 </html>
