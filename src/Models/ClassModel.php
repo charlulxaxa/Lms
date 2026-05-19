@@ -53,15 +53,16 @@ class ClassModel
                 ':created_by'  => $user_id
             ]);
             $last_id = $this->conn->lastInsertId();
-            $sql2 = 'INSERT INTO Class_User(class_id,user_id, role) VALUES
-        (:class_id, :user_id,:role)';
+            $sql2 = 'INSERT INTO Class_User(class_id, user_id, role, status) VALUES
+        (:class_id, :user_id, :role, :status)';
 
             $stmt2 = $this->conn->prepare($sql2);
 
             $stmt2->execute([
                 ':class_id' => $last_id,
                 ':user_id' => $user_id,
-                ':role'  => "teacher"
+                ':role'  => "teacher",
+                ':status' => "Active"
             ]);
 
             $this->conn->commit();
@@ -95,7 +96,7 @@ class ClassModel
      * @return mixed Operation result used by the caller.
      *
      */
-    public function getClassesByUser($user_id)
+    public function getClassesByUser(int|string $user_id): array
     {
         try {
             $sql = "SELECT
@@ -105,11 +106,13 @@ class ClassModel
             c.class_code,
             c.created_by,
             c.status,
-            cu.role
+            cu.role,
+            cu.status AS membership_status
         FROM Classes c
         JOIN Class_User cu ON c.class_id = cu.class_id
         WHERE cu.user_id = ?
-        AND c.status = 'Active'";
+        AND c.status = 'Active'
+        AND cu.status = 'Active'";
 
             $stmt = $this->conn->prepare($sql);
             $stmt->execute([$user_id]);
@@ -135,12 +138,14 @@ class ClassModel
                     u.first_name,
                     u.last_name,
                     a.email,
-                    cu.role
+                    cu.role,
+                    cu.status AS membership_status
                 FROM Users u
                 JOIN Class_User cu ON cu.user_id = u.user_id
                 JOIN Account a ON a.account_id = u.account_id
                 WHERE cu.class_id = :class_id
                 AND cu.role = 'student'
+                AND cu.status = 'Active'
                 ORDER BY u.last_name ASC, u.first_name ASC";
 
             $statement = $this->conn->prepare($sql);
@@ -163,20 +168,22 @@ class ClassModel
      * @return mixed Operation result used by the caller.
      *
      */
-    public function removeStudentFromClass($class_id, $student_id)
+    public function removeStudentFromClass(int|string $class_id, int|string $student_id): bool
     {
         try {
-            $sql = "DELETE FROM Class_User
+            $sql = "UPDATE Class_User
+                    SET status = 'Inactive'
                     WHERE class_id = :class_id
                     AND user_id = :user_id
                     AND role = 'student'";
 
             $statement = $this->conn->prepare($sql);
-
-            return $statement->execute([
+            $statement->execute([
                 ':class_id' => $class_id,
                 ':user_id' => $student_id
             ]);
+
+            return $statement->rowCount() > 0;
         } catch (\PDOException $e) {
             error_log("Remove student error: " . $e->getMessage());
             return false;
@@ -190,18 +197,24 @@ class ClassModel
      * @return mixed Operation result used by the caller.
      *
      */
-    public function joinClassByCode($user_id, $class_code)
+    public function joinClassByCode(int|string $user_id, string $class_code): array
     {
         try {
             $this->conn->beginTransaction();
 
-            // 1. Check class + membership in one query
-            $sql = "SELECT c.class_id, cu.user_id 
-                FROM Classes c
-                LEFT JOIN Class_User cu 
-                    ON c.class_id = cu.class_id 
-                    AND cu.user_id = :user_id
-                WHERE c.class_code = :class_code";
+            $sql = "SELECT
+                        c.class_id,
+                        cu.class_user_id,
+                        cu.user_id,
+                        cu.role,
+                        cu.status AS membership_status
+                    FROM Classes c
+                    LEFT JOIN Class_User cu
+                        ON c.class_id = cu.class_id
+                        AND cu.user_id = :user_id
+                    WHERE c.class_code = :class_code
+                    AND c.status = 'Active'
+                    LIMIT 1";
 
             $stmt = $this->conn->prepare($sql);
             $stmt->execute([
@@ -211,7 +224,6 @@ class ClassModel
 
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // 2. Class does not exist
             if (!$result) {
                 $this->conn->rollBack();
                 return ["success" => false, "message" => "Invalid class code"];
@@ -219,8 +231,7 @@ class ClassModel
 
             $class_id = $result['class_id'];
 
-            // 3. Already joined
-            if ($result['user_id']) {
+            if (!empty($result['class_user_id']) && $result['membership_status'] === 'Active') {
                 $this->conn->rollBack();
                 return [
                     "success" => false,
@@ -228,17 +239,31 @@ class ClassModel
                 ];
             }
 
-            // 4. Insert
-            $sql = "INSERT INTO Class_User (class_id, user_id, role)
-                VALUES (?, ?, ?)";
+            if (!empty($result['class_user_id']) && $result['membership_status'] === 'Inactive') {
+                $sql = "UPDATE Class_User
+                        SET status = 'Active',
+                            join_at = CURRENT_TIMESTAMP
+                        WHERE class_user_id = ?";
+                $stmt = $this->conn->prepare($sql);
+                $stmt->execute([$result['class_user_id']]);
+
+                $this->conn->commit();
+                return ["success" => true, "message" => "Successfully rejoined class"];
+            }
+
+            $sql = "INSERT INTO Class_User (class_id, user_id, role, status)
+                    VALUES (?, ?, ?, ?)";
             $stmt = $this->conn->prepare($sql);
-            $stmt->execute([$class_id, $user_id, "student"]);
+            $stmt->execute([$class_id, $user_id, "student", "Active"]);
 
             $this->conn->commit();
 
             return ["success" => true, "message" => "Successfully joined class"];
         } catch (\PDOException $e) {
-            $this->conn->rollBack();
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
+
             error_log("Join class error: " . $e->getMessage());
             return ["success" => false, "message" => "Something went wrong"];
         }
@@ -252,13 +277,22 @@ class ClassModel
      * @return mixed Operation result used by the caller.
      *
      */
-    public function leaveClass($user_id, $class_id)
+    public function leaveClass(int|string $user_id, int|string $class_id): bool
     {
         try {
-            $sql = "DELETE FROM Class_User WHERE class_id = ? AND user_id = ?";
+            $sql = "UPDATE Class_User
+                    SET status = 'Inactive'
+                    WHERE class_id = ?
+                    AND user_id = ?
+                    AND role = 'student'";
+
             $stmt = $this->conn->prepare($sql);
-            $stmt->execute([$class_id, $user_id]);
-            return true;
+            $stmt->execute([
+                $class_id,
+                $user_id
+            ]);
+
+            return $stmt->rowCount() > 0;
         } catch (\PDOException $e) {
             error_log("Leave class error: " . $e->getMessage());
             return false;
@@ -788,11 +822,10 @@ class ClassModel
      * @return mixed Operation result used by the caller.
      *
      */
-    public function getActivityGrades($class_id, $activity_id)
+    public function getActivityGrades(int|string $class_id, int|string $activity_id): array
     {
         try {
             $sql = "SELECT
-                    cu.class_user_id,
                     u.user_id,
                     u.first_name,
                     u.last_name,
@@ -800,18 +833,20 @@ class ClassModel
                     s.submission_id,
                     s.grade,
                     s.submitted_at,
+                    s.status,
                     COUNT(sa.submission_attachment_id) AS submitted_file_count
                 FROM Class_User cu
                 JOIN Users u ON u.user_id = cu.user_id
                 JOIN Account a ON a.account_id = u.account_id
                 LEFT JOIN Submission s
-                    ON s.class_user_id = cu.class_user_id
+                    ON s.user_id = u.user_id
                     AND s.activity_id = :activity_id
                 LEFT JOIN Submission_Attachment sa
                     ON sa.submission_id = s.submission_id
                 WHERE cu.class_id = :class_id
                 AND cu.role = 'student'
-                GROUP BY cu.class_user_id, u.user_id, u.first_name, u.last_name, a.email, s.submission_id, s.grade, s.submitted_at
+                AND cu.status = 'Active'
+                GROUP BY u.user_id, u.first_name, u.last_name, a.email, s.submission_id, s.grade, s.submitted_at, s.status
                 ORDER BY u.last_name ASC, u.first_name ASC";
 
             $stmt = $this->conn->prepare($sql);
@@ -827,6 +862,7 @@ class ClassModel
         }
     }
 
+
     /**
      * Creates or updates a submission grade for a student in an activity.
      *
@@ -837,10 +873,10 @@ class ClassModel
      * @return mixed Operation result used by the caller.
      *
      */
-    public function saveStudentGrade($class_id, $student_id, $activity_id, $grade)
+    public function saveStudentGrade(int|string $class_id, int|string $student_id, int|string $activity_id, mixed $grade): bool
     {
         try {
-            $sql = "SELECT class_user_id
+            $sql = "SELECT user_id
                 FROM Class_User
                 WHERE class_id = ?
                 AND user_id = ?
@@ -849,20 +885,20 @@ class ClassModel
 
             $stmt = $this->conn->prepare($sql);
             $stmt->execute([$class_id, $student_id]);
-            $classUser = $stmt->fetch(PDO::FETCH_ASSOC);
+            $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$classUser) {
+            if (!$student) {
                 return false;
             }
 
-            $sql = "INSERT INTO Submission (class_user_id, activity_id, grade)
-                VALUES (:class_user_id, :activity_id, :grade)
+            $sql = "INSERT INTO Submission (user_id, activity_id, grade)
+                VALUES (:user_id, :activity_id, :grade)
                 ON DUPLICATE KEY UPDATE
                     grade = VALUES(grade)";
 
             $stmt = $this->conn->prepare($sql);
             return $stmt->execute([
-                ':class_user_id' => $classUser['class_user_id'],
+                ':user_id' => $student_id,
                 ':activity_id' => $activity_id,
                 ':grade' => $grade
             ]);
@@ -871,6 +907,7 @@ class ClassModel
             return false;
         }
     }
+
 
     /**
      * Retrieves a student submission row for activity status and grade display.
@@ -881,21 +918,24 @@ class ClassModel
      * @return mixed Operation result used by the caller.
      *
      */
-    public function getStudentSubmission($class_id, $student_id, $activity_id)
+    public function getStudentSubmission(int|string $class_id, int|string $student_id, int|string $activity_id): array|false
     {
         try {
             $sql = "SELECT
                     s.submission_id,
                     s.grade,
                     s.submitted_at,
-                    cu.class_user_id
-                FROM Class_User cu
+                    s.status,
+                    u.user_id
+                FROM Users u
+                JOIN Class_User cu
+                    ON cu.user_id = u.user_id
+                    AND cu.class_id = :class_id
+                    AND cu.role = 'student'
                 LEFT JOIN Submission s
-                    ON s.class_user_id = cu.class_user_id
+                    ON s.user_id = u.user_id
                     AND s.activity_id = :activity_id
-                WHERE cu.class_id = :class_id
-                AND cu.user_id = :student_id
-                AND cu.role = 'student'
+                WHERE u.user_id = :student_id
                 LIMIT 1";
 
             $stmt = $this->conn->prepare($sql);
@@ -911,6 +951,7 @@ class ClassModel
             return false;
         }
     }
+
 
     /**
      * Creates or updates a submission and stores uploaded file records for student work.
@@ -934,11 +975,12 @@ class ClassModel
                 ];
             }
 
-            $sql = "SELECT class_user_id
+            $sql = "SELECT user_id
                 FROM Class_User
                 WHERE class_id = ?
                 AND user_id = ?
                 AND role = 'student'
+                AND status = 'Active'
                 LIMIT 1";
 
             $stmt = $this->conn->prepare($sql);
@@ -959,28 +1001,28 @@ class ClassModel
             $this->conn->beginTransaction();
 
             $sql = "INSERT INTO Submission
-                    (class_user_id, activity_id, submitted_at, status)
+                    (user_id, activity_id, submitted_at, status)
                 VALUES
-                    (:class_user_id, :activity_id, CURRENT_TIMESTAMP, 'submitted')
+                    (:user_id, :activity_id, CURRENT_TIMESTAMP, 'submitted')
                 ON DUPLICATE KEY UPDATE
                     submitted_at = CURRENT_TIMESTAMP,
                     status = 'submitted'";
 
             $stmt = $this->conn->prepare($sql);
             $stmt->execute([
-                ':class_user_id' => $classUser['class_user_id'],
+                ':user_id' => $student_id,
                 ':activity_id' => $activity_id
             ]);
 
             $sql = "SELECT submission_id
                 FROM Submission
-                WHERE class_user_id = ?
+                WHERE user_id = ?
                 AND activity_id = ?
                 LIMIT 1";
 
             $stmt = $this->conn->prepare($sql);
             $stmt->execute([
-                $classUser['class_user_id'],
+                $student_id,
                 $activity_id
             ]);
 
@@ -1046,10 +1088,11 @@ class ClassModel
 
             return [
                 'success' => false,
-                'message' => $e->getMessage()
+                'message' => 'Unable to submit activity.'
             ];
         }
     }
+
 
     /**
      * Retrieves uploaded files for a submission so users can view submitted work.
@@ -1218,12 +1261,15 @@ class ClassModel
     /**
      * Archives a class so it is hidden without permanently deleting its records.
      *
-     * @param mixed $class_id Class identifier involved in the operation.
-     * @param mixed $user_id User identifier involved in the operation.
-     * @return mixed Operation result used by the caller.
+     * This method first confirms that the current user is a teacher of the class,
+     * then marks the class as Inactive. It does not delete the class row, so the
+     * class can still appear on the archived classes page.
      *
+     * @param int|string $class_id The class ID to archive.
+     * @param int|string $user_id The teacher user ID requesting the archive action.
+     * @return bool True if the class status was changed to Inactive, false otherwise.
      */
-    public function deleteClass($class_id, $user_id)
+    public function deleteClass(int|string $class_id, int|string $user_id): bool
     {
         try {
             $class = $this->getClassForTeacher($class_id, $user_id);
@@ -1233,16 +1279,13 @@ class ClassModel
             }
 
             $sql = "UPDATE Classes
-                SET status = 'Inactive'
-                WHERE class_id = ?
-                AND created_by = ?";
+                    SET status = 'Inactive'
+                    WHERE class_id = ?";
 
             $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$class_id]);
 
-            return $stmt->execute([
-                $class_id,
-                $user_id
-            ]);
+            return $stmt->rowCount() > 0;
         } catch (\PDOException $e) {
             error_log("Archive class error: " . $e->getMessage());
             return false;
@@ -1257,10 +1300,14 @@ class ClassModel
             $sql = "SELECT 
                     s.submission_id
                 FROM Submission s
-                JOIN Class_User cu ON cu.class_user_id = s.class_user_id
-                WHERE cu.class_id = ?
-                AND cu.user_id = ?
-                AND cu.role = 'student'
+                JOIN Activity act ON act.activity_id = s.activity_id
+                JOIN Post p ON p.post_id = act.post_id
+                JOIN Class_User cu
+                    ON cu.class_id = p.class_id
+                    AND cu.user_id = s.user_id
+                    AND cu.role = 'student'
+                WHERE p.class_id = ?
+                AND s.user_id = ?
                 AND s.activity_id = ?
                 LIMIT 1";
 
@@ -1337,6 +1384,7 @@ class ClassModel
         }
     }
 
+
     /**
      * Retrieves archived classes joined or created by a user.
      *
@@ -1349,23 +1397,32 @@ class ClassModel
     public function getArchivedClassesByUser(int|string $user_id): array
     {
         try {
-            $sql = "SELECT
-                    c.class_id,
-                    c.class_name,
-                    c.class_desc,
-                    c.class_code,
-                    c.created_by,
-                    c.created_at,
-                    c.status,
-                    cu.role
-                FROM Classes c
-                JOIN Class_User cu ON c.class_id = cu.class_id
-                WHERE cu.user_id = ?
-                AND c.status = 'Inactive'
-                ORDER BY c.created_at DESC";
+            $sql = "SELECT DISTINCT
+                        c.class_id,
+                        c.class_name,
+                        c.class_desc,
+                        c.class_code,
+                        c.created_by,
+                        c.created_at,
+                        c.status,
+                        COALESCE(cu.role, 'teacher') AS role
+                    FROM Classes c
+                    LEFT JOIN Class_User cu
+                        ON c.class_id = cu.class_id
+                        AND cu.user_id = ?
+                    WHERE c.status = 'Inactive'
+                    AND (
+                        cu.user_id = ?
+                        OR c.created_by = ?
+                    )
+                    ORDER BY c.created_at DESC";
 
             $stmt = $this->conn->prepare($sql);
-            $stmt->execute([$user_id]);
+            $stmt->execute([
+                $user_id,
+                $user_id,
+                $user_id
+            ]);
 
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (\PDOException $e) {

@@ -56,6 +56,25 @@ if (empty($currentClass['class_desc'])) {
     $currentClass['class_desc'] = "No description";
 }
 
+// 🚪 Student: leave class without deleting submission history
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['leave_class'])) {
+    if ($isTeacher) {
+        die('Teachers cannot leave their own class here.');
+    }
+
+    $left = $classModel->leaveClass($user_id, $class_id);
+
+    if ($left) {
+        $_SESSION['success'] = 'You have left the class successfully.';
+        header('Location: home.php');
+        exit();
+    }
+
+    $_SESSION['error'] = 'Unable to leave class. Please try again.';
+    header('Location: class.php?class_id=' . $class_id);
+    exit();
+}
+
 // ✏️ Edit announcement / activity
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_post'])) {
 
@@ -419,6 +438,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_activity'])) {
                     <div class="card p-3 mb-3">
                         <h5>📘 Class Info</h5>
                         <p>You are enrolled as a student.</p>
+                    </div>
+
+                    <div class="card p-3 mb-3 teacher-panel">
+                        <h5>
+                            <i class="fa-solid fa-right-from-bracket me-1"></i>
+                            Class Options
+                        </h5>
+
+                        <form method="POST"
+                              onsubmit="return confirm('Are you sure you want to leave this class? Your submissions will remain in the database, but you will lose access to this class.');">
+                            <button type="submit" name="leave_class" class="btn btn-outline-danger w-100">
+                                Leave Class
+                            </button>
+                        </form>
                     </div>
                 <?php endif; ?>
 

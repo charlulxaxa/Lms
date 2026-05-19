@@ -64,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
 
     $class_code = strtoupper(trim($_POST['class_code']));
 
-    $result = $classModel->joinClassByCode($user['account_id'], $class_code);
+    $result = $classModel->joinClassByCode($user['user_id'], $class_code);
 
     if ($result['success']) {
       $_SESSION['success'] = $result['message'];
